@@ -1,5 +1,3 @@
 .encryption_params
 *.bin
 data/
-dl.py
-md5sum

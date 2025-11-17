@@ -1,20 +1,31 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-set -euf -o pipefail
-source common.sh
+zlib_inflate() {
+  # openssl zlib -d
+  python3 -c "import sys, zlib; sys.stdout.buffer.write(zlib.decompress(sys.stdin.buffer.read()))"
+}
 
-u -in backup.bin -out backup.zz.tmp dec
-u -in backup.zz.tmp -out backup.bin.tmp dmp
+source .encryption_params
 
-c dd if=backup.bin.tmp of=md5sum bs=1 count=16
-c dd if=backup.bin.tmp of=backup.tar.tmp bs=1 skip=16
+ENCRYPTED_BACKUP_FILE=$(realpath "$1")
 
-c mkdir -p data
-c tar -xf backup.tar.tmp -C data/
+mkdir -p data/ori-backup-certificate.bin.decrypted/
+cd data
 
-c pushd data
-u -in ori-backup-user-config.bin -out config.zz.tmp dec
-u -in config.zz.tmp -out config.xml dmp
-c popd
+openssl enc -aes-256-cbc -d -K "$KEY" -iv "$IV" -in "$ENCRYPTED_BACKUP_FILE" | \
+  # tee >(cat > ../data.p1.bin) |
+  zlib_inflate | \
+  tee >(head -c16 > magic_prefix.bin ; true) | \
+  # tee >(cat > ../data.p2.bin) |
+  tail -c+17 | \
+  # tee >(cat > ../data.p3.bin) |
+  tar -xpf - -C .
 
-c rm ./**.tmp
+openssl enc -aes-256-cbc -d -K "$KEY" -iv "$IV" -in ori-backup-user-config.bin | \
+  zlib_inflate > \
+  ori-backup-user-config.bin.decrypted.xml
+
+openssl enc -aes-256-cbc -d -K "$KEY" -iv "$IV" -in ori-backup-certificate.bin | \
+  zlib_inflate | \
+  tar -xpf - -C ori-backup-certificate.bin.decrypted
